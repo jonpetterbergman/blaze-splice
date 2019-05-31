@@ -72,4 +72,29 @@ loadContent :: IO Html
 loadContent = loadFile mempty () "myContent.html"
 ```
 
-Runtime loading has a sort of macro support. TODO: describe macros
+Runtime loading supports macros which have the type:
+```haskell
+data Macro e m =
+  Macro (Map String (Macro e m) -> e -> Map String Html -> Html -> m Html)
+```
+Macros are parameterized over an environment e and a monad m. Macros expand to Html in m. They take a map of named arguments, and one unnamed argument. They also take an environment e and a set of macros.
+
+Macros can be called in 3 ways from the xml:
+
+### Inside parameter 
+```xml
+<tag param="$macroname">
+  ``` 
+will call macroname with no named parameters and empty unnamed parameter.
+### As a tag, named arguments as parameters 
+```xml
+<macro:macroname p1="named argument 1" p2="named argument 2">unnamed argument</macro:macroname>
+```
+### As a tag, named arguments as child nodes 
+```xml
+<longmacro:macroname>
+  <p1>named argument 1</p1>
+  <p2>named argument 2</p2>
+  <body>unnamed argument</body>
+</longmacro:macroname>
+  ```
