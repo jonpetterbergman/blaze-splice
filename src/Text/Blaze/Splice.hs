@@ -11,7 +11,8 @@ import Text.XML.Light.Types(Element(..),
 import qualified Data.Text.IO as TIO
 import Language.Haskell.TH(runIO,Q,Exp(..),Lit(..),mkName)
 import Text.Blaze.Internal(customLeaf,stringTag,customParent,customAttribute)
-import Text.Blaze.Html(toHtml,(!),toValue,preEscapedToHtml)
+--import Text.Blaze.Html(toHtml,(!),toValue,preEscapedToHtml)
+import Text.Blaze(toMarkup,(!),toValue,preEscapedToMarkup)
 import Data.Maybe(catMaybes)
 import Data.Char(isSpace,isAlpha)
 import Language.Haskell.TH.Quote(QuasiQuoter(..),quoteFile)
@@ -66,13 +67,13 @@ contentToExpr (CRef c) = fmap Just $ preEscaped $ "&" ++ c ++ ";"
 
 cdataToExpr :: CData -> Q (Maybe Exp)
 cdataToExpr (CData CDataText str _) | all isSpace str = return Nothing
-                                    | otherwise = fmap Just $ mkAttrVal [| toHtml |] str
+                                    | otherwise = fmap Just $ mkAttrVal [| toMarkup |] str
 cdataToExpr (CData CDataRaw str _) = fmap Just $ preEscaped str
 cdataToExpr (CData k str l) =
   error $ "Unsupported CDataKind " ++ show k ++ " " ++ show l ++ ": " ++ show str
 
 preEscaped :: String -> Q Exp
-preEscaped c = [| preEscapedToHtml ($(return $ LitE $ StringL c) :: String) |]
+preEscaped c = [| preEscapedToMarkup ($(return $ LitE $ StringL c) :: String) |]
 
 xml :: QuasiQuoter
 xml =

@@ -8,8 +8,8 @@ import Text.XML.Light.Types(Content(..),
                             Attr(..),
                             CDataKind(..))
 import Text.XML.Light.Input(parseXML)  
-import Text.Blaze.Html(Html,Tag,preEscapedToHtml,(!),toValue,toHtml,AttributeValue)
 import Text.Blaze.Internal(customParent,stringTag,customAttribute)
+import Text.Blaze(Markup,AttributeValue,Tag,toValue,(!),toMarkup,preEscapedToMarkup)
 import Data.Map(Map)
 import qualified Data.Map as Map
 import qualified Data.Text.IO as TIO
@@ -19,23 +19,23 @@ import Control.Monad(foldM)
 import System.Directory(doesFileExist)
 
 data Macro e m =
-  Macro (Map String (Macro e m) -> e -> Map String Html -> Html -> m Html)
+  Macro (Map String (Macro e m) -> e -> Map String Markup -> Markup -> m Markup)
 
-lookupAttr :: String -> Map String Html -> Either Html Html
+lookupAttr :: String -> Map String Markup -> Either Markup Markup
 lookupAttr s mp =
   case Map.lookup s mp of
-    Nothing -> Left $ toHtml $ "Missing attribute " ++ show s
+    Nothing -> Left $ toMarkup $ "Missing attribute " ++ show s
     Just v -> Right v
 
-optionalAttr :: String -> Map String Html -> Either Html (Maybe Html)
+optionalAttr :: String -> Map String Markup -> Either Markup (Maybe Markup)
 optionalAttr s mp =
   case lookupAttr s mp of
     Left e -> Right Nothing
     Right x -> Right $ Just x
 
 withAttrs :: Monad m
-          => (Map String Html -> Either Html a)
-          -> (a -> Map String (Macro e m) -> e -> Map String Html -> Html -> m Html)
+          => (Map String Markup -> Either Markup a)
+          -> (a -> Map String (Macro e m) -> e -> Map String Markup -> Markup -> m Markup)
           -> Macro e m
 withAttrs getAttrs fn = Macro go
   where go ms e attr cont =
@@ -43,7 +43,7 @@ withAttrs getAttrs fn = Macro go
             Left e -> return e
             Right v -> fn v ms e attr cont
   
-constMacro :: Monad m => Html -> Macro e m
+constMacro :: Monad m => Markup -> Macro e m
 constMacro x = Macro go
   where go _ _ _ _ = return x
 
@@ -57,7 +57,7 @@ loadFile :: MonadIO m
          => Map String (Macro e m)
          -> e
          -> FilePath
-         -> m Html
+         -> m Markup
 loadFile ms e fn =
   do
     ex <- liftIO $ doesFileExist fn
@@ -65,45 +65,45 @@ loadFile ms e fn =
       do
         txt <- liftIO $ TIO.readFile fn
         case parseXML txt of
-          [] -> return $ toHtml $ "No valid xml in " ++ show fn
+          [] -> return $ toMarkup $ "No valid xml in " ++ show fn
           xml -> fmap mconcat $ mapM (contentToHtml ms e) xml
      else
-      return $ toHtml $ "can't load xml from " ++ show fn
+      return $ toMarkup $ "can't load xml from " ++ show fn
       
 contentToHtml :: Monad m
               => Map String (Macro e m)
               -> e
               -> Content
-              -> m Html
+              -> m Markup
 contentToHtml ms e (Elem c) = elementToHtml ms e c
 contentToHtml _ _ (Text c) = return $ cdataToHtml c
-contentToHtml _ _ (CRef c) = return $ preEscapedToHtml $ "&" ++ c ++ ";"
+contentToHtml _ _ (CRef c) = return $ preEscapedToMarkup $ "&" ++ c ++ ";"
 
-cdataToHtml :: CData -> Html
-cdataToHtml (CData CDataText str _) = toHtml str
-cdataToHtml (CData CDataRaw str _) = preEscapedToHtml str
+cdataToHtml :: CData -> Markup
+cdataToHtml (CData CDataText str _) = toMarkup str
+cdataToHtml (CData CDataRaw str _) = preEscapedToMarkup str
 cdataToHtml (CData k str l) =
-  toHtml $ "Unsupported CDataKind " ++ show k ++ " " ++ show l ++ ": " ++ show str
+  toMarkup $ "Unsupported CDataKind " ++ show k ++ " " ++ show l ++ ": " ++ show str
 
 
 mkVal' :: Monad m
        => Map String (Macro e m)
        -> e
        -> String
-       -> m Html
-mkVal' ms e ('$':'$':name) = return $ toHtml $ '$':name
+       -> m Markup
+mkVal' ms e ('$':'$':name) = return $ toMarkup $ '$':name
 mkVal' ms e ('$':name) =
   case Map.lookup name ms of
-    Nothing -> return $ toHtml $ "Unknown macro " ++ show name
+    Nothing -> return $ toMarkup $ "Unknown macro " ++ show name
     Just (Macro m) -> m ms e mempty mempty
-mkVal' ms e xs = return $ toHtml xs
+mkVal' ms e xs = return $ toMarkup xs
 
 
 evalAttrs :: Monad m
           => Map String (Macro e m)
           -> e
           -> [Attr]
-          -> m (Map String Html)
+          -> m (Map String Markup)
 evalAttrs ms e = foldM go mempty
   where go mp (Attr (QName k _ _) v) =
           do
@@ -114,7 +114,7 @@ evalBody :: Monad m
          => Map String (Macro e m)
          -> e
          -> [Content]
-         -> m (Map String Html,Html)
+         -> m (Map String Markup,Markup)
 evalBody ms e = foldM go (mempty,mempty)
   where go (mp,body) (Elem c) = evalBElement ms e (mp,body) c
         go acc _ = return acc
@@ -122,9 +122,9 @@ evalBody ms e = foldM go (mempty,mempty)
 evalBElement :: Monad m
              => Map String (Macro e m)
              -> e
-             -> (Map String Html,Html)
+             -> (Map String Markup,Markup)
              -> Element
-             -> m (Map String Html,Html)
+             -> m (Map String Markup,Markup)
 evalBElement ms e (mp,body) (Element (QName "body" _ Nothing) _ cont _) =
   do
     c <- fmap mconcat $ mapM (contentToHtml ms e) cont
@@ -139,19 +139,19 @@ elementToHtml :: Monad m
               => Map String (Macro e m)
               -> e
               -> Element
-              -> m Html
+              -> m Markup
 elementToHtml macros e (Element name atrs cont line) =
   case mkMacroOrTag name of
     Left (True,macro) ->
       case Map.lookup macro macros of
-        Nothing -> return $ toHtml $ "Unknown macro" ++ show macro
+        Nothing -> return $ toMarkup $ "Unknown macro" ++ show macro
         Just (Macro m) ->
           do
             (atrs',body) <- evalBody macros e cont
             m macros e atrs' body
     Left (False,macro) ->
       case Map.lookup macro macros of
-        Nothing -> return $ toHtml $ "Unknown macro " ++ show macro
+        Nothing -> return $ toMarkup $ "Unknown macro " ++ show macro
         Just (Macro m) ->
           do
             c <- fmap mconcat $ mapM (contentToHtml macros e) cont
@@ -166,8 +166,8 @@ addAttrs :: Monad m
          => Map String (Macro e m)
          -> e
          -> [Attr]
-         -> Html
-         -> m Html
+         -> Markup
+         -> m Markup
 addAttrs ms _ [] el = return el
 addAttrs ms e ((Attr k v):t) el =
   do
